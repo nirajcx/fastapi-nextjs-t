@@ -1,3 +1,4 @@
+from app.api.v1.router import api_router
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import FastAPI
@@ -12,6 +13,7 @@ app = FastAPI(
     description="Learning Todo app",
     version="0.0.1",
 )
+app.include_router(api_router,prefix="/api/v1")
 
 @app.get("/health")
 async def health(db: AsyncSession = Depends(get_db)):
