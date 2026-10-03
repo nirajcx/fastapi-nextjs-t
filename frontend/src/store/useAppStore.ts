@@ -2,7 +2,7 @@ import { notify } from "@/store/useToastStore";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { Todo, UserProfile, RateLimitInfo } from "@/lib/types";
-import { api, loginWithKeycloakPassword, exchangeCodeForToken, getLatestRateLimit } from "@/lib/api";
+import { api, loginWithKeycloakPassword, exchangeCodeForToken, getLatestRateLimit, getKeycloakLogoutUrl } from "@/lib/api";
 
 
 
@@ -184,16 +184,23 @@ export const useAppStore = create<AppState>()(
       logout: async () => {
         const { token, authMode } = get();
         try {
-          const response = await fetch(`${API_BASE}/auth/logout`, {
-            method: "POST", credentials: "include",
+          await fetch(`${API_BASE}/auth/logout`, {
+            method: "POST",
+            credentials: "include",
             headers: token ? { Authorization: `Bearer ${token}` } : {},
           });
-          if (!response.ok) throw new Error("Server logout failed. Your session may still be active.");
-          notify(authMode === "keycloak" ? "Signed out of this app. Your Keycloak session may still be active." : "You’re signed out.", authMode === "keycloak" ? "info" : "success");
-        } catch (error) {
-          notify(error instanceof Error ? error.message : "Could not confirm server logout.", "error");
+        } catch {
+          // Ignore server errors during cleanup
         } finally {
           set({ user: null, token: null, todos: [], authError: null, todosError: null, filter: "all", searchQuery: "" });
+          if (authMode === "keycloak" && typeof window !== "undefined") {
+            const logoutUrl = getKeycloakLogoutUrl();
+            if (logoutUrl) {
+              window.location.href = logoutUrl;
+              return;
+            }
+          }
+          notify("You’re signed out.", "success");
         }
       },
 

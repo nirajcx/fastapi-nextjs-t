@@ -74,8 +74,21 @@ export function getKeycloakLoginUrl(): string {
     response_type: "code",
     scope: "openid profile email",
     redirect_uri: window.location.origin,
+    prompt: "login", // Forces Keycloak to always show the login screen instead of auto-logging in via SSO cookie
   });
   return `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/auth?${params.toString()}`;
+}
+
+/**
+ * Builds the URL to log out of Keycloak SSO session and redirect back to the app.
+ */
+export function getKeycloakLogoutUrl(): string {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams({
+    client_id: KEYCLOAK_CLIENT_ID,
+    post_logout_redirect_uri: window.location.origin,
+  });
+  return `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/logout?${params.toString()}`;
 }
 
 /**
