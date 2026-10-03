@@ -36,83 +36,107 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    redis = await get_redis()
+    redis = None
+    try:
+        redis = await get_redis()
+    except Exception as e:
+        print(f"Redis unavailable for session lookup: {e}")
 
-    # 1. First priority: Bearer token from Keycloak
+    # 1. Bearer token handling (Supports both Keycloak RS256 JWT and direct session tokens)
     if auth_header and auth_header.credentials:
         token = auth_header.credentials
-        cache_key = f"keycloak:token:{token[-32:]}"
+        is_jwt = token.count(".") == 2
 
-        # Fast Redis cache lookup
-        cached = await redis.get(cache_key)
-        if cached:
-            data = json.loads(cached)
-            return User(
-                id=UUID(data["id"]),
-                email=data["email"],
-                username=data["username"],
-                hashed_password="",
-                is_active=data["is_active"],
+        if is_jwt:
+            cache_key = f"keycloak:token:{token[-32:]}"
+            if redis:
+                try:
+                    cached = await redis.get(cache_key)
+                    if cached:
+                        data = json.loads(cached)
+                        return User(
+                            id=UUID(data["id"]),
+                            email=data["email"],
+                            username=data["username"],
+                            hashed_password="",
+                            is_active=data["is_active"],
+                            created_at=datetime.fromisoformat(data.get("created_at", datetime.utcnow().isoformat())),
+                        )
+                except Exception:
+                    pass
+
+            # Verify RS256 token against Keycloak JWKS
+            payload = verify_keycloak_token(token)
+            sub_str = payload.get("sub")
+            if not sub_str:
+                raise credentials_exception
+
+            try:
+                user_uuid = UUID(sub_str)
+            except ValueError:
+                import uuid
+                user_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, sub_str)
+
+            username = (
+                payload.get("preferred_username")
+                or payload.get("username")
+                or f"user_{str(user_uuid)[:8]}"
+            )
+            email = payload.get("email") or f"{username}@keycloak.local"
+
+            user_repo = UserRepository(db)
+            user = await user_repo.get_or_create_keycloak_user(
+                user_id=user_uuid,
+                email=email,
+                username=username,
             )
 
-        # Verify RS256 token against Keycloak JWKS
-        payload = verify_keycloak_token(token)
-        sub_str = payload.get("sub")
-        if not sub_str:
-            raise credentials_exception
+            if not user.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="User account is disabled",
+                )
 
-        try:
-            user_uuid = UUID(sub_str)
-        except ValueError:
-            import uuid
-            user_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, sub_str)
+            # Cache in Redis if available
+            if redis:
+                try:
+                    await redis.setex(
+                        cache_key,
+                        SESSION_CACHE_TTL,
+                        json.dumps({
+                            "id": str(user.id),
+                            "email": user.email,
+                            "username": user.username,
+                            "is_active": user.is_active,
+                            "created_at": user.created_at.isoformat() if hasattr(user, "created_at") and user.created_at else datetime.utcnow().isoformat(),
+                        }),
+                    )
+                except Exception:
+                    pass
 
-        username = (
-            payload.get("preferred_username")
-            or payload.get("username")
-            or f"user_{str(user_uuid)[:8]}"
-        )
-        email = payload.get("email") or f"{username}@keycloak.local"
+            return user
+        else:
+            # Token in Authorization header is a direct session token
+            session_token = token
 
-        user_repo = UserRepository(db)
-        user = await user_repo.get_or_create_keycloak_user(
-            user_id=user_uuid,
-            email=email,
-            username=username,
-        )
-
-        if not user.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User account is disabled",
-            )
-
-        # Cache in Redis
-        await redis.setex(
-            cache_key,
-            SESSION_CACHE_TTL,
-            json.dumps({
-                "id": str(user.id),
-                "email": user.email,
-                "username": user.username,
-                "is_active": user.is_active,
-            }),
-        )
-        return user
-
-    # 2. Fallback: Cookie-based legacy session
+    # 2. Session token handling (via cookie or header fallback)
     if session_token:
         cache_key = f"session:{session_token}"
-        cached = await redis.get(cache_key)
-        if cached:
-            data = json.loads(cached)
-            return User(
-                id=UUID(data["id"]),
-                email=data["email"],
-                username=data["username"],
-                hashed_password="",
-                is_active=data["is_active"],
-            )
+        if redis:
+            try:
+                cached = await redis.get(cache_key)
+                if cached:
+                    data = json.loads(cached)
+                    return User(
+                        id=UUID(data["id"]),
+                        email=data["email"],
+                        username=data["username"],
+                        hashed_password="",
+                        is_active=data["is_active"],
+                        created_at=datetime.fromisoformat(data.get("created_at", datetime.utcnow().isoformat())),
+                    )
+            except Exception:
+                pass
 
         session_repo = SessionRepository(db)
         auth_session = await session_repo.get_by_token(session_token)
@@ -127,16 +151,22 @@ async def get_current_user(
         if user is None or not user.is_active:
             raise credentials_exception
 
-        await redis.setex(
-            cache_key,
-            SESSION_CACHE_TTL,
-            json.dumps({
-                "id": str(user.id),
-                "email": user.email,
-                "username": user.username,
-                "is_active": user.is_active,
-            }),
-        )
+        if redis:
+            try:
+                await redis.setex(
+                    cache_key,
+                    SESSION_CACHE_TTL,
+                    json.dumps({
+                        "id": str(user.id),
+                        "email": user.email,
+                        "username": user.username,
+                        "is_active": user.is_active,
+                        "created_at": user.created_at.isoformat() if hasattr(user, "created_at") and user.created_at else datetime.utcnow().isoformat(),
+                    }),
+                )
+            except Exception:
+                pass
+
         return user
 
     # Neither Bearer token nor cookie provided

@@ -37,7 +37,7 @@ async def login(login_req: LoginRequest, db: DB, response: Response):
         key=SESSION_COOKIE_NAME,
         value=result.session_token,
         httponly=True,
-        secure=settings.environment != "local",
+        secure=False,  # Allow cookie over HTTP on local network / homelab IP
         samesite="lax",
         max_age=settings.session_expire_hours * 3600,
     )
