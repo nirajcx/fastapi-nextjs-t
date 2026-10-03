@@ -1,0 +1,29 @@
+{
+  "realm": "todo-realm",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "clients": [{
+    "clientId": "todo-app",
+    "enabled": true,
+    "protocol": "openid-connect",
+    "publicClient": true,
+    "standardFlowEnabled": true,
+    "directAccessGrantsEnabled": true,
+    "redirectUris": ["http://localhost:3000", "http://localhost:3000/*"],
+    "webOrigins": ["http://localhost:3000"],
+    "attributes": {"post.logout.redirect.uris": "http://localhost:3000##http://localhost:3000/*"},
+    "defaultClientScopes": ["web-origins", "profile", "email", "roles"]
+  }],
+  "users": [{
+    "username": "demo",
+    "email": "demo@example.com",
+    "firstName": "Demo",
+    "lastName": "User",
+    "enabled": true,
+    "emailVerified": true,
+    "requiredActions": [],
+    "credentials": [{"type": "password", "value": "demo_dev_password", "temporary": false}]
+  }]
+}
