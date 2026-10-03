@@ -21,8 +21,8 @@ class TodoUpdate(BaseModel):
 
 class TodoResponse(TodoBase):
     id: UUID
+    user_id: UUID         # kis user ka todo hai
     created_at: datetime
     updated_at: datetime
 
-    model_config=ConfigDict(from_attributes=True)
-    
+    model_config = ConfigDict(from_attributes=True)
