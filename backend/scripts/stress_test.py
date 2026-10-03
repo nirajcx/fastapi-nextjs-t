@@ -1,6 +1,7 @@
 """
 High-Performance Async Stress Test for FastAPI & Redis Rate Limiter.
 Simulates concurrent load to test server throughput and rate-limit enforcement.
+Supports both fixed-request count and sustained time-duration (e.g. 60 seconds).
 """
 
 import asyncio
@@ -32,6 +33,48 @@ async def send_worker(
             stats["errors"] += 1
 
 
+async def duration_worker(
+    client: httpx.AsyncClient,
+    stop_time: float,
+    stats: Dict,
+) -> None:
+    while time.perf_counter() < stop_time:
+        start_time = time.perf_counter()
+        try:
+            res = await client.get(TARGET_URL)
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            stats["status_codes"][res.status_code] = (
+                stats["status_codes"].get(res.status_code, 0) + 1
+            )
+            stats["latencies"].append(elapsed_ms)
+            stats["total"] += 1
+        except Exception:
+            stats["errors"] += 1
+            stats["total"] += 1
+
+
+def print_results(duration: float, total: int, stats: Dict) -> None:
+    rps = total / duration if duration > 0 else 0
+    latencies: List[float] = sorted(stats["latencies"])
+
+    avg_lat = sum(latencies) / len(latencies) if latencies else 0
+    p50 = latencies[int(len(latencies) * 0.50)] if latencies else 0
+    p95 = latencies[int(len(latencies) * 0.95)] if latencies else 0
+    p99 = latencies[int(len(latencies) * 0.99)] if latencies else 0
+
+    print("\n📊 Benchmark Results:")
+    print(f"  • Total Requests:     {total}")
+    print(f"  • Total Duration:     {duration:.2f} seconds")
+    print(f"  • Throughput:         {rps:.1f} req/sec")
+    print(f"  • HTTP Status Codes:  {stats['status_codes']}")
+    print(f"  • Average Latency:    {avg_lat:.2f} ms")
+    print(f"  • p50 (Median):       {p50:.2f} ms")
+    print(f"  • p95:                {p95:.2f} ms")
+    print(f"  • p99:                {p99:.2f} ms")
+    print(f"  • Failed Requests:    {stats['errors']}")
+    print("=" * 60)
+
+
 async def run_stress_test(total: int = TOTAL_REQUESTS, concurrency: int = CONCURRENCY):
     print("=" * 60)
     print(f"🔥 Starting Stress Test: {total} requests (Concurrency: {concurrency})")
@@ -52,29 +95,44 @@ async def run_stress_test(total: int = TOTAL_REQUESTS, concurrency: int = CONCUR
         await asyncio.gather(*tasks)
 
     duration = time.perf_counter() - start_total
-    rps = total / duration
-    latencies: List[float] = sorted(stats["latencies"])
+    print_results(duration, total, stats)
 
-    avg_lat = sum(latencies) / len(latencies) if latencies else 0
-    p50 = latencies[int(len(latencies) * 0.50)] if latencies else 0
-    p95 = latencies[int(len(latencies) * 0.95)] if latencies else 0
-    p99 = latencies[int(len(latencies) * 0.99)] if latencies else 0
 
-    print("\n📊 Benchmark Results:")
-    print(f"  • Total Duration:     {duration:.2f} seconds")
-    print(f"  • Throughput:         {rps:.1f} req/sec")
-    print(f"  • HTTP Status Codes:  {stats['status_codes']}")
-    print(f"  • Average Latency:    {avg_lat:.2f} ms")
-    print(f"  • p50 (Median):       {p50:.2f} ms")
-    print(f"  • p95:                {p95:.2f} ms")
-    print(f"  • p99:                {p99:.2f} ms")
-    print(f"  • Failed Requests:    {stats['errors']}")
+async def run_duration_test(seconds: int = 60, concurrency: int = CONCURRENCY):
     print("=" * 60)
+    print(f"🔥 Starting Sustained Stress Test: {seconds} seconds (Concurrency: {concurrency})")
+    print(f"🎯 Target Endpoint: {TARGET_URL}")
+    print("=" * 60)
+
+    stats = {
+        "status_codes": {},
+        "latencies": [],
+        "errors": 0,
+        "total": 0,
+    }
+
+    start_total = time.perf_counter()
+    stop_time = start_total + seconds
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        tasks = [duration_worker(client, stop_time, stats) for _ in range(concurrency)]
+        await asyncio.gather(*tasks)
+
+    duration = time.perf_counter() - start_total
+    print_results(duration, stats["total"], stats)
 
 
 if __name__ == "__main__":
-    count = int(sys.argv[1]) if len(sys.argv) > 1 else TOTAL_REQUESTS
-    concurrency = int(sys.argv[2]) if len(sys.argv) > 2 else CONCURRENCY
-    if len(sys.argv) > 3:
-        TARGET_URL = sys.argv[3]
-    asyncio.run(run_stress_test(count, concurrency))
+    # Check for duration mode: python stress_test.py --duration 60 50 <url>
+    if len(sys.argv) > 1 and sys.argv[1] in ("--duration", "-d"):
+        duration_secs = int(sys.argv[2]) if len(sys.argv) > 2 else 60
+        concurrency = int(sys.argv[3]) if len(sys.argv) > 3 else CONCURRENCY
+        if len(sys.argv) > 4:
+            TARGET_URL = sys.argv[4]
+        asyncio.run(run_duration_test(duration_secs, concurrency))
+    else:
+        count = int(sys.argv[1]) if len(sys.argv) > 1 else TOTAL_REQUESTS
+        concurrency = int(sys.argv[2]) if len(sys.argv) > 2 else CONCURRENCY
+        if len(sys.argv) > 3:
+            TARGET_URL = sys.argv[3]
+        asyncio.run(run_stress_test(count, concurrency))

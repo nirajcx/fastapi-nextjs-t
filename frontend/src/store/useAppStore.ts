@@ -2,7 +2,7 @@ import { notify } from "@/store/useToastStore";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { Todo, UserProfile, RateLimitInfo } from "@/lib/types";
-import { api, loginWithKeycloakPassword, exchangeCodeForToken, getLatestRateLimit, getKeycloakLogoutUrl } from "@/lib/api";
+import { api, loginWithKeycloakPassword, exchangeCodeForToken, getLatestRateLimit, getKeycloakLogoutUrl, responseError } from "@/lib/api";
 
 
 
@@ -138,8 +138,7 @@ export const useAppStore = create<AppState>()(
           });
 
           if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(typeof err.detail === "string" ? err.detail : "Direct API login failed. Check your email and password.");
+            throw await responseError(res, res.status === 401 ? "Invalid email or password." : "Sign-in could not be completed.");
           }
 
           await res.json();
@@ -167,8 +166,7 @@ export const useAppStore = create<AppState>()(
           });
 
           if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(typeof err.detail === "string" ? err.detail : "Registration failed. Check the fields and try again.");
+            throw await responseError(res, "Registration could not be completed.");
           }
 
           notify("Account created. Signing you in…");

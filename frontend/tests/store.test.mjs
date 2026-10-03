@@ -18,7 +18,7 @@ function setup() {
     requests.push({ url, ...options });
     const next = responses.shift();
     assert.ok(next, `Unexpected request: ${url}`);
-    return new Response(JSON.stringify(next.body), { status: next.status || 200 });
+    return new Response(next.raw ?? JSON.stringify(next.body), { status: next.status || 200 });
   };
   function load(relative) {
     const filename = path.resolve(testDirectory, '../src', relative + '.ts');
@@ -26,7 +26,7 @@ function setup() {
     const compiled = { exports: {} };
     cache.set(filename, compiled);
     const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
-    vm.runInNewContext(code, { module: compiled, exports: compiled.exports, require: (id) => id.startsWith('@/') ? load(id.slice(2)) : requireProject(id), process, console, fetch, Headers, URLSearchParams, localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) } }, { filename });
+    vm.runInNewContext(code, { module: compiled, exports: compiled.exports, require: (id) => id.startsWith('@/') ? load(id.slice(2)) : requireProject(id), process, console, Error, fetch, Headers, URLSearchParams, localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) } }, { filename });
     return compiled.exports;
   }
   return { store: load('store/useAppStore').useAppStore, toast: load('store/useToastStore').useToastStore, responses, requests };
@@ -59,7 +59,7 @@ test('CRUD updates state and reports success; failed edit preserves prior task a
   await store.getState().updateTodo(todo.id, 'Read two chapters', '');
   assert.equal(store.getState().todos[0].title, 'Read two chapters');
   responses.push({ status: 500, body: { detail: 'Save failed' } });
-  await assert.rejects(store.getState().updateTodo(todo.id, 'Lost edit', ''), /Save failed/);
+  await assert.rejects(store.getState().updateTodo(todo.id, 'Lost edit', ''), /HTTP 500/);
   assert.equal(store.getState().todos[0].title, 'Read two chapters');
   assert.equal(toast.getState().toasts.at(-1).kind, 'error');
   responses.push({ body: { ...todo, is_completed: true } });
@@ -88,4 +88,33 @@ test('Keycloak logout explicitly distinguishes local sign-out from identity-prov
   await store.getState().logout();
   assert.equal(toast.getState().toasts.at(-1).kind, 'info');
   assert.match(toast.getState().toasts.at(-1).message, /Keycloak session may still be active/);
+});
+
+for (const status of [502, 503, 504]) {
+  test(`HTML ${status} login failure reports service unavailability, not wrong credentials`, async () => {
+    const { store, toast, responses, requests } = setup();
+    responses.push({ status, raw: '<html><h1>Bad Gateway</h1></html>' });
+    await assert.rejects(store.getState().loginDirect('sample@example.com', 'test-password'), /Service temporarily unavailable/);
+    assert.equal(store.getState().user, null);
+    assert.equal(store.getState().isLoadingAuth, false);
+    assert.equal(requests.length, 1);
+    assert.match(toast.getState().toasts.at(-1).message, new RegExp(`HTTP ${status}`));
+    assert.doesNotMatch(store.getState().authError, /password|<html>/);
+  });
+}
+
+test('401 login retains the backend credential error', async () => {
+  const { store, responses } = setup();
+  responses.push({ status: 401, body: { detail: 'Invalid email or password' } });
+  await assert.rejects(store.getState().loginDirect('sample@example.com', 'test-password'), /Invalid email or password/);
+});
+
+test('registration and task loading classify HTML proxy failures', async () => {
+  const { store, responses } = setup();
+  responses.push({ status: 502, raw: '<html>Bad Gateway</html>' });
+  await assert.rejects(store.getState().registerDirect('sample@example.com', 'Sample', 'test-password'), /Service temporarily unavailable/);
+  store.setState({ authMode: 'direct', user: profile });
+  responses.push({ status: 502, raw: '<html>Bad Gateway</html>' });
+  await store.getState().fetchTodos();
+  assert.match(store.getState().todosError, /Service temporarily unavailable/);
 });

@@ -13,6 +13,28 @@ let lastRateLimit: RateLimitInfo = {
 
 export const getLatestRateLimit = (): RateLimitInfo => lastRateLimit;
 
+/** Classify HTTP failures before parsing a possibly HTML proxy response. */
+export async function responseError(response: Response, fallback: string): Promise<Error> {
+  if ([502, 503, 504].includes(response.status)) {
+    return new Error(`Service temporarily unavailable (HTTP ${response.status}). Please try again shortly.`);
+  }
+  if (response.status >= 500) {
+    return new Error(`The server could not complete the request (HTTP ${response.status}). Please try again later.`);
+  }
+  if (response.status === 429) {
+    return new Error("Too many requests. Please wait before trying again.");
+  }
+  const body = await response.json().catch(() => null);
+  const detail = body?.detail ?? body?.error_description;
+  if (typeof detail === "string" && detail.trim()) return new Error(detail);
+  if (Array.isArray(detail)) {
+    const messages = detail.map((item: { msg?: unknown } | null) => item?.msg)
+      .filter((message: unknown): message is string => typeof message === "string");
+    if (messages.length) return new Error(messages.join("; "));
+  }
+  return new Error(`${fallback} (HTTP ${response.status})`);
+}
+
 export async function loginWithKeycloakPassword(
   username: string,
   password: string
@@ -157,8 +179,7 @@ async function apiRequest<T>(
   }
 
   if (!res.ok) {
-    const errBody = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(typeof errBody.detail === "string" ? errBody.detail : Array.isArray(errBody.detail) ? errBody.detail.map((item: { msg: string }) => item.msg).join("; ") : `Request failed with status ${res.status}`);
+    throw await responseError(res, "Request failed");
   }
 
   return res.json();
