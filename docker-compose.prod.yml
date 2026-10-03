@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build:
@@ -20,7 +18,10 @@ services:
     ports:
       - "8000:8000"
     networks:
-      - lab_default
+      lab_default:
+        aliases:
+          - backend
+          - lab-backend
 
   frontend:
     build:
@@ -36,7 +37,10 @@ services:
     ports:
       - "80:80"
     networks:
-      - lab_default
+      lab_default:
+        aliases:
+          - frontend
+          - lab-frontend
     depends_on:
       - backend
 
