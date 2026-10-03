@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     rate_limit_window_seconds: int = 60    # default: per 60 seconds
     secret_key: SecretStr            # session sign karne ke liye (future use)
     session_expire_hours: int = 168  # 7 days default
+    redis_url: str = "redis://localhost:6379/0"  # default local
+
 
     model_config = SettingsConfigDict(
         env_file=".env",

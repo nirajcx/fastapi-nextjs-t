@@ -7,6 +7,8 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.db.session import get_db
 
+from app.core.redis import init_redis, close_redis
+
 app = FastAPI(
     title=settings.app_name,
     description="""
@@ -35,6 +37,16 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api/v1")
+
+@app.on_event("startup")
+async def startup():
+    await init_redis()
+    print("✅ Redis connected")
+    
+@app.on_event("shutdown")
+async def shutdown():
+    await close_redis()
+    print("Redis connection closed")
 
 
 @app.get("/health")

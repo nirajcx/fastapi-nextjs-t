@@ -1,9 +1,11 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+import json
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.redis import get_redis
 from app.core.security import generate_session_token, hash_password, verify_password
 from app.repositories.session_repository import SessionRepository
 from app.repositories.user_repository import UserRepository
@@ -73,7 +75,7 @@ class AuthService:
         token = generate_session_token()
 
         # Step 5: Expiry time calculate karo (settings se)
-        expires_at = datetime.now(timezone.utc) + timedelta(
+        expires_at = datetime.utcnow() + timedelta(
             hours=settings.session_expire_hours
         )
 
@@ -83,6 +85,23 @@ class AuthService:
             token=token,
             expires_at=expires_at,
         )
+
+        # Step 7: Redis cache mein bhi save karo (Cache Warmup)
+        try:
+            redis = await get_redis()
+            if redis:
+                await redis.setex(
+                    f"session:{token}",
+                    300,  # 5 minutes
+                    json.dumps({
+                        "id": str(user.id),
+                        "email": user.email,
+                        "username": user.username,
+                        "is_active": user.is_active,
+                    }),
+                )
+        except Exception:
+            pass  # Redis optional cache hai
 
         return LoginResponse(
             session_token=token,

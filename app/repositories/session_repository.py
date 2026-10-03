@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -6,6 +6,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.session import AuthSession
+
+from app.core.redis import get_redis
+
 
 
 class SessionRepository:
@@ -42,11 +45,28 @@ class SessionRepository:
         if session:
             session.is_revoked = True
             await self.session.commit()
+        # Redis cache bhi clear karo — warna 5 min tak purana token kaam karega!
+        try:
+            redis = await get_redis()
+            if redis:
+                await redis.delete(f"session:{token}")
+        except Exception:
+            pass
 
     async def revoke_all_for_user(self, user_id: UUID) -> None:
         """User ke saare active sessions revoke karo — logout pe use hota hai."""
         from sqlalchemy import update
-        from app.db.models.session import AuthSession
+
+        # 1. Pehle user ke active session tokens nikaalo
+        result = await self.session.execute(
+            select(AuthSession.session_token).where(
+                AuthSession.user_id == user_id,
+                AuthSession.is_revoked.is_(False),
+            )
+        )
+        tokens = result.scalars().all()
+
+        # 2. DB mein revoke mark karo
         await self.session.execute(
             update(AuthSession)
             .where(AuthSession.user_id == user_id, AuthSession.is_revoked.is_(False))
@@ -54,9 +74,19 @@ class SessionRepository:
         )
         await self.session.commit()
 
+        # 3. Redis se un saare tokens ko delete karo
+        if tokens:
+            try:
+                redis = await get_redis()
+                if redis:
+                    keys = [f"session:{t}" for t in tokens]
+                    await redis.delete(*keys)
+            except Exception:
+                pass
+
     async def delete_expired(self) -> None:
         """Expired sessions ko DB se clean karo — cron job mein call kar sakte ho."""
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         await self.session.execute(
             delete(AuthSession).where(AuthSession.expires_at < now)
         )

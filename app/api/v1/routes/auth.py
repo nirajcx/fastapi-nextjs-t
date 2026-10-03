@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Cookie, Response, status
 
 from app.api.dependencies import CurrentUser, SESSION_COOKIE_NAME
 from app.db.session import DB
@@ -47,20 +47,39 @@ async def login(login_req: LoginRequest, db: DB, response: Response):
 
 
 @router.post("/logout", response_model=LogoutResponse, status_code=status.HTTP_200_OK)
-async def logout(current_user: CurrentUser, db: DB, response: Response):
+async def logout(
+    current_user: CurrentUser,
+    db: DB,
+    response: Response,
+    session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+):
     """
-    Logout karo — session revoke + cookie delete.
+    Logout karo — sirf current device ka session revoke + cookie delete.
     """
-    # current_user ke session token ko dependency se nikala nahi ja sakta directly,
-    # isliye service mein user_id se active session revoke karte hain
     from app.repositories.session_repository import SessionRepository
     session_repo = SessionRepository(db)
-    await session_repo.revoke_all_for_user(current_user.id)
+
+    # Sirf is current device/browser ka token revoke karo
+    if session_token:
+        await session_repo.revoke_session(session_token)
 
     # Browser se cookie delete karo
     response.delete_cookie(key=SESSION_COOKIE_NAME, httponly=True, samesite="lax")
 
     return LogoutResponse(message="Logged out successfully")
+
+
+@router.post("/logout-all", response_model=LogoutResponse, status_code=status.HTTP_200_OK)
+async def logout_all(current_user: CurrentUser, db: DB, response: Response):
+    """
+    Saare devices se logout karo (e.g. phone, laptop sab ek sath).
+    """
+    from app.repositories.session_repository import SessionRepository
+    session_repo = SessionRepository(db)
+    await session_repo.revoke_all_for_user(current_user.id)
+
+    response.delete_cookie(key=SESSION_COOKIE_NAME, httponly=True, samesite="lax")
+    return LogoutResponse(message="Logged out from all devices successfully")
 
 
 @router.get("/me", response_model=UserResponse, status_code=status.HTTP_200_OK)
