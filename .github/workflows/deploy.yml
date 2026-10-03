@@ -21,7 +21,21 @@ jobs:
 
       - name: Health Check
         run: |
-          echo "🩺 Verifying Backend health..."
-          sleep 6
-          curl -f http://localhost:8000/health || exit 1
-          echo "🎉 All services deployed and healthy!"
+          echo "🩺 Verifying Backend health (waiting for migrations & Uvicorn startup)..."
+          for i in {1..15}; do
+            if curl -s -f http://localhost:8000/health > /dev/null; then
+              echo "🎉 Backend is healthy and responding!"
+              exit 0
+            fi
+            echo "Waiting for backend to be ready (attempt $i/15)..."
+            sleep 2
+          done
+          echo "❌ Health check timed out!"
+          docker compose -f docker-compose.prod.yml logs --tail 100 backend
+          exit 1
+
+      - name: Dump Logs on Failure
+        if: failure()
+        run: |
+          echo "📋 Container logs:"
+          docker compose -f docker-compose.prod.yml logs --tail 100
