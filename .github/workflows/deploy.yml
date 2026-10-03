@@ -23,8 +23,8 @@ jobs:
         run: |
           echo "🩺 Verifying Backend health (waiting for migrations & Uvicorn startup)..."
           for i in {1..15}; do
-            if curl -s -f http://localhost:8000/health > /dev/null; then
-              echo "🎉 Backend is healthy and responding!"
+            if curl -s -f http://localhost:8000/health > /dev/null && curl -s -f http://localhost/ > /dev/null; then
+              echo "🎉 Backend and Frontend (Nginx on Port 80) are healthy and responding!"
               exit 0
             fi
             echo "Waiting for backend to be ready (attempt $i/15)..."
