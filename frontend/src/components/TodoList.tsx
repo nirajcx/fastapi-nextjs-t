@@ -1,259 +1,50 @@
 "use client";
-
-import React, { useState } from "react";
+import { useState } from "react";
+import { Check, Plus, Search, Pencil, Trash2, ListTodo, ArrowRight, RefreshCw } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import {
-  CheckCircle2,
-  Circle,
-  Trash2,
-  Plus,
-  Search,
-  AlertCircle,
-  Inbox,
-  LogOut,
-  User,
-  Shield,
-  Zap,
-} from "lucide-react";
+import type { Todo } from "@/lib/types";
 
+function TaskRow({ todo }: { todo: Todo }) {
+  const { toggleTodo, deleteTodo, updateTodo } = useAppStore();
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(todo.title);
+  const [description, setDescription] = useState(todo.description || "");
+  const [busy, setBusy] = useState(false);
+  async function act(action: () => Promise<void>) {
+    setBusy(true);
+    try { await action(); } catch { /* Action errors are shown by the toaster. */ } finally { setBusy(false); }
+  }
+  return <li className={`task-row ${todo.is_completed ? "task-completed" : ""}`}>
+    {editing ? <form className="edit-form" onSubmit={(event) => { event.preventDefault(); void act(async () => { await updateTodo(todo.id, title.trim(), description.trim()); setEditing(false); }); }}>
+      <label>Task title<input autoFocus required value={title} onChange={(e) => setTitle(e.target.value)} /></label>
+      <label>Description<textarea value={description} onChange={(e) => setDescription(e.target.value)} /></label>
+      <div className="form-actions"><button type="button" className="text-button" disabled={busy} onClick={() => setEditing(false)}>Cancel</button><button className="primary-button" disabled={busy || !title.trim()}>{busy ? "Saving…" : "Save changes"}</button></div>
+    </form> : <>
+      <button className="task-check" role="checkbox" aria-checked={todo.is_completed} aria-label={`Mark ${todo.title} ${todo.is_completed ? "active" : "complete"}`} disabled={busy} onClick={() => void act(() => toggleTodo(todo))}>{todo.is_completed && <Check size={16} />}</button>
+      <div className="task-copy"><h3>{todo.title}</h3>{todo.description && <p>{todo.description}</p>}</div>
+      <div className="task-actions"><button aria-label={`Edit ${todo.title}`} title="Edit task" disabled={busy} onClick={() => { setTitle(todo.title); setDescription(todo.description || ""); setEditing(true); }}><Pencil size={17} /></button><button aria-label={`Delete ${todo.title}`} title="Delete task" disabled={busy} onClick={() => void act(() => deleteTodo(todo.id))}><Trash2 size={17} /></button></div>
+    </>}
+  </li>;
+}
 export function TodoList() {
-  const {
-    user,
-    authMode,
-    logout,
-    todos,
-    filter,
-    setFilter,
-    searchQuery,
-    setSearchQuery,
-    isLoadingTodos,
-    todosError,
-    createTodo,
-    toggleTodo,
-    deleteTodo,
-    rateLimit,
-  } = useAppStore();
-
+  const { user, todos, filter, setFilter, searchQuery, setSearchQuery, isLoadingTodos, todosError, createTodo, fetchTodos } = useAppStore();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleAddTodo = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-    setIsSubmitting(true);
-    try {
-      await createTodo(title.trim(), description.trim() || undefined);
-      setTitle("");
-      setDescription("");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const filteredTodos = todos.filter((todo) => {
-    const match =
-      todo.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (todo.description && todo.description.toLowerCase().includes(searchQuery.toLowerCase()));
-    if (!match) return false;
-    if (filter === "active") return !todo.is_completed;
-    if (filter === "completed") return todo.is_completed;
-    return true;
-  });
-
-  const totalCount = todos.length;
-  const completedCount = todos.filter((t) => t.is_completed).length;
-  const activeCount = totalCount - completedCount;
-
-  return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      {/* User Header & Logout */}
-      <Card className="border-border/60 bg-card/60 backdrop-blur-md">
-        <CardContent className="p-4 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-emerald-500 to-cyan-500 flex items-center justify-center font-bold text-white shadow-md">
-              {user?.username ? user.username.charAt(0).toUpperCase() : <User className="w-5 h-5" />}
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-sm">{user?.username}</span>
-                <Badge variant={authMode === "keycloak" ? "indigo" : "emerald"} className="text-[10px]">
-                  {authMode === "keycloak" ? "Keycloak RS256" : "Direct API"}
-                </Badge>
-              </div>
-              <span className="text-xs text-muted-foreground">{user?.email}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Redis Rate Limit Meter */}
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-border bg-background/50">
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span>
-                Redis: <strong>{rateLimit.remaining}</strong>/{rateLimit.limit} reqs
-              </span>
-            </div>
-
-            <Button variant="destructive" size="sm" onClick={() => logout()} className="h-8 gap-1.5 text-xs">
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Logout</span>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Stats Summary */}
-      <div className="grid grid-cols-3 gap-3">
-        <Card className="p-4 border-border/50 bg-card/40">
-          <div className="text-[11px] font-semibold text-muted-foreground uppercase">Total Tasks</div>
-          <div className="text-2xl font-bold mt-1">{totalCount}</div>
-        </Card>
-        <Card className="p-4 border-border/50 bg-card/40">
-          <div className="text-[11px] font-semibold text-muted-foreground uppercase">Pending</div>
-          <div className="text-2xl font-bold text-amber-400 mt-1">{activeCount}</div>
-        </Card>
-        <Card className="p-4 border-border/50 bg-card/40">
-          <div className="text-[11px] font-semibold text-muted-foreground uppercase">Completed</div>
-          <div className="text-2xl font-bold text-emerald-400 mt-1">{completedCount}</div>
-        </Card>
-      </div>
-
-      {/* Create Task Card */}
-      <Card className="border-border/60 bg-card/70 backdrop-blur-md">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Plus className="w-4 h-4 text-primary" />
-            <span>Create New Task</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleAddTodo} className="space-y-3">
-            <Input
-              placeholder="Task title (e.g., Update Keycloak client redirect URIs)"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-            />
-            <Input
-              placeholder="Description (optional)"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-            <div className="flex justify-end">
-              <Button type="submit" disabled={isSubmitting || !title.trim()} size="sm" className="gap-1.5">
-                <Plus className="w-4 h-4" />
-                <span>{isSubmitting ? "Adding..." : "Add Task"}</span>
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* Error alert */}
-      {todosError && (
-        <div className="flex items-center gap-2 p-3 text-xs bg-destructive/10 border border-destructive/20 text-destructive rounded-lg">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>{todosError}</span>
-        </div>
-      )}
-
-      {/* Search & Filter Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="relative flex-1 min-w-[220px]">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search tasks..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 h-9 text-xs"
-          />
-        </div>
-
-        <div className="flex gap-1.5">
-          {(["all", "active", "completed"] as const).map((t) => (
-            <Button
-              key={t}
-              variant={filter === t ? "default" : "secondary"}
-              size="sm"
-              onClick={() => setFilter(t)}
-              className="h-9 capitalize text-xs"
-            >
-              {t}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      {/* Todos List */}
-      <div className="space-y-2">
-        {isLoadingTodos && todos.length === 0 ? (
-          <div className="text-center py-8 text-xs text-muted-foreground">Loading tasks...</div>
-        ) : filteredTodos.length === 0 ? (
-          <Card className="p-8 text-center border-dashed border-border/60 bg-transparent">
-            <Inbox className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-            <div className="text-sm font-medium">No tasks found</div>
-            <div className="text-xs text-muted-foreground mt-1">
-              {searchQuery ? "No matches for your query" : "Add your first task above!"}
-            </div>
-          </Card>
-        ) : (
-          filteredTodos.map((todo) => (
-            <Card
-              key={todo.id}
-              className={`p-3.5 flex items-center justify-between gap-3 border-border/50 transition-colors hover:border-primary/40 ${
-                todo.is_completed ? "opacity-60 bg-card/30" : "bg-card/70"
-              }`}
-            >
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <button
-                  type="button"
-                  onClick={() => toggleTodo(todo)}
-                  className="cursor-pointer text-muted-foreground hover:text-emerald-400 transition-colors"
-                >
-                  {todo.is_completed ? (
-                    <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                  ) : (
-                    <Circle className="w-5 h-5" />
-                  )}
-                </button>
-
-                <div className="flex-1 min-w-0">
-                  <div
-                    className={`text-sm font-medium truncate ${
-                      todo.is_completed ? "line-through text-muted-foreground" : "text-foreground"
-                    }`}
-                  >
-                    {todo.title}
-                  </div>
-                  {todo.description && (
-                    <div className="text-xs text-muted-foreground truncate mt-0.5">
-                      {todo.description}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => deleteTodo(todo.id)}
-                className="h-8 w-8 text-muted-foreground hover:text-destructive"
-              >
-                <Trash2 className="w-4 h-4" />
-              </Button>
-            </Card>
-          ))
-        )}
-      </div>
-    </div>
-  );
+  const [adding, setAdding] = useState(false);
+  const completed = todos.filter((todo) => todo.is_completed).length;
+  const visible = todos.filter((todo) => (filter === "all" || (filter === "completed" ? todo.is_completed : !todo.is_completed)) && `${todo.title} ${todo.description || ""}`.toLowerCase().includes(searchQuery.toLowerCase()));
+  async function add(event: React.FormEvent) {
+    event.preventDefault(); setAdding(true);
+    try { await createTodo(title.trim(), description.trim()); setTitle(""); setDescription(""); } catch { /* Preserve the draft on failure. */ } finally { setAdding(false); }
+  }
+  return <div className="dashboard">
+    <div className="dashboard-heading"><div><span className="eyebrow">YOUR EVERYDAY, ORGANIZED</span><h1>Let’s make room for progress{user?.username ? `, ${user.username}` : ""}.</h1><p className="muted">A fresh perspective on everything you want to get done.</p></div><span className="workspace-pill"><span />My workspace</span></div>
+    <div className="stats-grid">{[["On your list", todos.length, "Every idea starts somewhere."], ["Still to do", todos.length - completed, "One step at a time."], ["Completed", completed, "Look how far you’ve come."]].map(([label, count, caption], i) => <div className={`stat-card stat-${i}`} key={label}><span>{label}</span><strong>{count.toString().padStart(2, "0")}</strong><p>{caption}</p></div>)}</div>
+    <div className="workspace-grid"><section className="task-section"><div className="section-heading"><h2>Your tasks <span>{todos.length}</span></h2><button className="text-button" disabled={isLoadingTodos} onClick={() => void fetchTodos()} aria-label="Refresh tasks"><RefreshCw size={16} className={isLoadingTodos ? "animate-spin" : ""} /></button></div>
+      <div className="task-toolbar"><div className="filter-tabs">{(["all", "active", "completed"] as const).map((item) => <button key={item} aria-pressed={filter === item} onClick={() => setFilter(item)}>{item === "all" ? "All tasks" : item === "active" ? "To do" : "Completed"}</button>)}</div><label className="search-box"><Search size={17} /><input aria-label="Search tasks" placeholder="Find a task…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></label></div>
+      {todosError && <p className="inline-error" role="alert">{todosError}</p>}
+      {isLoadingTodos && !todos.length ? <div className="empty-state" role="status">Loading your tasks…</div> : visible.length ? <ul className="task-list">{visible.map((todo) => <TaskRow key={todo.id} todo={todo} />)}</ul> : <div className="empty-state"><ListTodo size={32} /><h3>{todosError ? "Couldn’t load your tasks" : todos.length ? "Nothing here just yet" : "A little space for your next idea"}</h3><p>{todosError ? "Refresh to try again." : todos.length ? "Try another filter or search." : "Add your first task and take it from there."}</p></div>}
+      <div className="list-footer">{completed} of {todos.length} tasks completed<span>Keep moving at your own pace.</span></div>
+    </section><aside><section className="panel composer"><span className="icon-tile"><Plus size={22} /></span><h2>What’s on your mind?</h2><p className="muted">Give it a name. Make it happen.</p><form onSubmit={add}><label>Task title<input required placeholder="Something you want to do" value={title} onChange={(e) => setTitle(e.target.value)} /></label><label>A few details <span className="optional">optional</span><textarea placeholder="Add a little context…" rows={4} value={description} onChange={(e) => setDescription(e.target.value)} /></label><button className="primary-button" disabled={adding || !title.trim()}>{adding ? "Adding task…" : "Add task"}<ArrowRight size={17} /></button></form></section><div className="focus-note">“You don’t have to see the whole staircase. Just take the first step.”<span>A LITTLE REMINDER</span></div></aside></div>
+  </div>;
 }

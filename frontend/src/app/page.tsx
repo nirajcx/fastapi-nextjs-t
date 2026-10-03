@@ -1,93 +1,44 @@
 "use client";
-
-import React, { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { Check, ArrowUpRight, LogOut } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
 import { AuthCard } from "@/components/AuthCard";
 import { TodoList } from "@/components/TodoList";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { ShieldCheck, Server, KeyRound, Cpu, Database } from "lucide-react";
+import { notify } from "@/store/useToastStore";
 
 export default function Home() {
-  const { user, refreshProfile, fetchTodos } = useAppStore();
-
+  const { user, logout } = useAppStore();
+  const initialized = useRef(false);
+  const [ready, setReady] = useState(false);
   useEffect(() => {
-    refreshProfile();
-    fetchTodos();
-  }, [refreshProfile, fetchTodos]);
-
-  const services = [
-    { name: "FastAPI Backend", host: "localhost:8000", icon: Server, color: "text-indigo-400" },
-    { name: "Keycloak OIDC", host: "192.168.1.3:8080", icon: KeyRound, color: "text-purple-400" },
-    { name: "Redis Limiter", host: "192.168.1.3:6379", icon: Cpu, color: "text-rose-400" },
-    { name: "PostgreSQL DB", host: "192.168.1.3:5432", icon: Database, color: "text-cyan-400" },
-  ];
-
-  return (
-    <div className="min-h-screen flex flex-col">
-      {/* Header */}
-      <header className="border-b border-border/50 bg-card/40 backdrop-blur-md sticky top-0 z-30">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center shadow-md shadow-indigo-500/20">
-              <ShieldCheck className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-sm tracking-tight">Homelab Todo Stack</span>
-                <Badge variant="indigo" className="text-[10px] px-2 py-0.5">
-                  v0.1.0
-                </Badge>
-              </div>
-              <p className="text-[11px] text-muted-foreground">FastAPI · Keycloak · Redis</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground hidden sm:inline">Stack:</span>
-            <Badge variant="outline" className="text-[11px] border-emerald-500/40 text-emerald-400">
-              🟢 All Systems Operational
-            </Badge>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-8 space-y-8">
-        {/* Status Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {services.map((svc, i) => {
-            const Icon = svc.icon;
-            return (
-              <Card key={i} className="p-3 border-border/40 bg-card/40 backdrop-blur-sm">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-md bg-muted/60">
-                    <Icon className={`w-4 h-4 ${svc.color}`} />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold truncate">{svc.name}</div>
-                    <div className="text-[11px] text-muted-foreground font-mono truncate">{svc.host}</div>
-                  </div>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-
-        {/* Dynamic Auth or Dashboard */}
-        {!user ? (
-          <div className="py-8">
-            <AuthCard />
-          </div>
-        ) : (
-          <TodoList />
-        )}
-      </main>
-
-      {/* Clean Footer */}
-      <footer className="border-t border-border/40 py-6 text-center text-xs text-muted-foreground">
-        FastAPI Resource Server + Keycloak OIDC Authentication + Redis Sliding Window Rate Limiting
-      </footer>
-    </div>
-  );
+    if (initialized.current) return;
+    initialized.current = true;
+    async function initialize() {
+      if (!useAppStore.persist.hasHydrated()) await useAppStore.persist.rehydrate();
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get("code");
+      if (code) await useAppStore.getState().loginWithKeycloakCode(code);
+      else if (params.has("error")) {
+        notify("Sign-in was cancelled or could not be completed. Please try again.", "error");
+        window.history.replaceState({}, "", window.location.pathname);
+      } else if (useAppStore.getState().user) {
+        await useAppStore.getState().refreshProfile();
+        if (useAppStore.getState().user) await useAppStore.getState().fetchTodos();
+      }
+      setReady(true);
+    }
+    void initialize();
+  }, []);
+  return <div className="app-shell">
+    <header className="app-header"><Link className="brand" href="/"><span className="brand-mark"><Check size={23} strokeWidth={3} /></span>Daymark<span className="brand-label">YOUR PERSONAL WORKSPACE</span></Link>
+      {ready && user ? <div className="header-account"><span>{user.username}</span><button className="text-button" onClick={() => void logout()}><LogOut size={16} />Sign out</button></div> : <span className="header-note">Make space for what matters.</span>}
+    </header>
+    <main>{!ready ? <div className="loading-state" role="status">Opening your workspace…</div> : user ? <TodoList /> : <div className="welcome-layout">
+      <section className="welcome-copy"><span className="eyebrow">SMALL STEPS. MEANINGFUL DAYS.</span><h1>A clearer mind.<br />A better <em>day.</em></h1><p>Bring your tasks together, find your focus, and turn the things you want to do into things you’ve done.</p>
+        <div className="preview-note"><div className="preview-heading"><span>ONE THING AT A TIME</span><ArrowUpRight size={20} /></div><div className="sample-task"><span className="sample-check"><Check size={16} /></span><s>Make a little room for yourself</s></div><div className="sample-task"><span className="sample-circle" />Start something that matters</div><div className="preview-bottom"><span>Less noise. More progress.</span><span>✦</span></div></div>
+      </section><AuthCard />
+    </div>}</main>
+    <footer className="app-footer"><span>Daymark — a little more done.</span><span>Your day, at your pace.</span></footer>
+  </div>;
 }

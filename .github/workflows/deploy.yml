@@ -1,0 +1,27 @@
+name: Homelab CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Build & Deploy on Ubuntu Homelab
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build & Deploy with Docker Compose
+        run: |
+          echo "🚀 Deploying containers on Homelab..."
+          docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+
+      - name: Health Check
+        run: |
+          echo "🩺 Verifying Backend health..."
+          sleep 6
+          curl -f http://localhost:8000/health || exit 1
+          echo "🎉 All services deployed and healthy!"

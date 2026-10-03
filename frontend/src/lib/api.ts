@@ -64,6 +64,49 @@ export async function refreshKeycloakToken(refreshToken: string): Promise<Keyclo
   return res.json();
 }
 
+/**
+ * Builds the URL to redirect the user to Keycloak's hosted login screen.
+ */
+export function getKeycloakLoginUrl(): string {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams({
+    client_id: KEYCLOAK_CLIENT_ID,
+    response_type: "code",
+    scope: "openid profile email",
+    redirect_uri: window.location.origin,
+  });
+  return `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/auth?${params.toString()}`;
+}
+
+/**
+ * Exchanges the authorization code received from Keycloak redirect for JWT tokens.
+ */
+export async function exchangeCodeForToken(code: string): Promise<KeycloakTokenResponse> {
+  const tokenEndpoint = `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/token`;
+
+  const body = new URLSearchParams();
+  body.append("client_id", KEYCLOAK_CLIENT_ID);
+  body.append("grant_type", "authorization_code");
+  body.append("code", code);
+  body.append("redirect_uri", typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
+
+  const res = await fetch(tokenEndpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error_description || errorData.error || "Failed to exchange authorization code.");
+  }
+
+  return res.json();
+}
+
+
 async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {},
@@ -79,6 +122,7 @@ async function apiRequest<T>(
   const url = `${API_BASE}${endpoint}`;
   const res = await fetch(url, {
     ...options,
+    credentials: "include",
     headers,
   });
 
@@ -101,7 +145,7 @@ async function apiRequest<T>(
 
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(errBody.detail || `Request failed with status ${res.status}`);
+    throw new Error(typeof errBody.detail === "string" ? errBody.detail : Array.isArray(errBody.detail) ? errBody.detail.map((item: { msg: string }) => item.msg).join("; ") : `Request failed with status ${res.status}`);
   }
 
   return res.json();
