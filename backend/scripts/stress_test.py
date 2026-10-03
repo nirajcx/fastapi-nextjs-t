@@ -75,4 +75,6 @@ async def run_stress_test(total: int = TOTAL_REQUESTS, concurrency: int = CONCUR
 if __name__ == "__main__":
     count = int(sys.argv[1]) if len(sys.argv) > 1 else TOTAL_REQUESTS
     concurrency = int(sys.argv[2]) if len(sys.argv) > 2 else CONCURRENCY
+    if len(sys.argv) > 3:
+        TARGET_URL = sys.argv[3]
     asyncio.run(run_stress_test(count, concurrency))
