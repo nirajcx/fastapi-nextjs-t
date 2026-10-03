@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.db.session import get_db
 
 from app.core.redis import init_redis, close_redis
+from app.middleware.rate_limit import RedisRateLimitMiddleware
 
 app = FastAPI(
     title=settings.app_name,
@@ -26,6 +27,9 @@ app = FastAPI(
         "withCredentials": True,       # Swagger fetch calls mein cookie bhejega
     },
 )
+
+# Redis Rate Limiting Middleware — har IP ki request limit track karega
+app.add_middleware(RedisRateLimitMiddleware)
 
 # CORS — Frontend ke liye (cookie cross-origin bhejne ke liye credentials=True zaruri hai)
 app.add_middleware(
