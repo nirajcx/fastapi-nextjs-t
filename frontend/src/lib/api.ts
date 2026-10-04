@@ -228,13 +228,17 @@ export const api = {
    * CRITICAL: Content-Type header must exactly match what was sent to /presign.
    */
   async uploadToS3(uploadUrl: string, file: File): Promise<void> {
+    const contentType = file.type || "application/octet-stream";
     const res = await fetch(uploadUrl, {
       method: "PUT",
       body: file,
-      headers: { "Content-Type": file.type },
+      headers: { "Content-Type": contentType },
     });
     if (!res.ok) {
-      throw new Error(`Upload failed: MinIO returned HTTP ${res.status}. The signed URL may have expired.`);
+      const errorText = await res.text().catch(() => "");
+      throw new Error(
+        `Upload failed: MinIO returned HTTP ${res.status}. ${errorText || "The signed URL may have expired."}`
+      );
     }
   },
 
