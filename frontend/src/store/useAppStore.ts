@@ -44,7 +44,7 @@ interface AppState {
 
   // Todo actions
   fetchTodos: () => Promise<void>;
-  createTodo: (title: string, description?: string) => Promise<void>;
+  createTodo: (title: string, description?: string, file?: File | null) => Promise<void>;
   toggleTodo: (todo: Todo) => Promise<void>;
   updateTodo: (id: string, title: string, description: string) => Promise<void>;
   deleteTodo: (id: string) => Promise<void>;
@@ -230,16 +230,38 @@ export const useAppStore = create<AppState>()(
         }
       },
 
-      createTodo: async (title, description) => {
+      createTodo: async (title, description, file) => {
         const { token } = get();
         if (!token && get().authMode === "keycloak") return;
         try {
+          let attachmentFields = {};
+
+          if (file) {
+            // ── Step 1: Get a one-time signed PUT URL from FastAPI ──────────────
+            const { upload_url, s3_key } = await api.presignUpload(
+              { file_name: file.name, content_type: file.type || "application/octet-stream" },
+              token || ""
+            );
+
+            // ── Step 2: PUT raw bytes directly to MinIO (bypasses FastAPI) ──────
+            await api.uploadToS3(upload_url, file);
+
+            // ── Step 3: Build the metadata payload for the todo row ─────────────
+            attachmentFields = {
+              attachment_key: s3_key,
+              attachment_name: file.name,
+              attachment_size: file.size,
+              attachment_content_type: file.type || "application/octet-stream",
+            };
+          }
+
+          // ── Step 4: Create the todo row in Postgres via FastAPI ───────────────
           const created = await api.createTodo(
-            { title, description: description || undefined },
+            { title, description: description || undefined, ...attachmentFields },
             token || ""
           );
           set((state) => ({ todos: [created, ...state.todos], todosError: null }));
-          notify("Task added.");
+          notify(file ? "Task added with attachment." : "Task added.");
           get().updateRateLimit();
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : "Failed to create task";

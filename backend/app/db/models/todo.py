@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Uuid, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -30,6 +30,17 @@ class Todo(Base):
         DateTime, server_default=func.now(), onupdate=func.now()
     )
 
+    # ─── S3 Attachment Fields ──────────────────────────────────────────────────
+    # attachment_key  : the S3 object path, e.g. "users/{uid}/todos/{uuid}.png"
+    # attachment_name : original file name the user selected, shown in the UI
+    # attachment_size : file size in bytes for display (e.g. "2.3 MB")
+    # attachment_content_type : MIME type, used to decide how to render the file
+    attachment_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    attachment_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    attachment_size: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    attachment_content_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
     # ─── Relationship ──────────────────────────────────────────────
     # Linked to User.todos
     user: Mapped["User"] = relationship("User", back_populates="todos")
+

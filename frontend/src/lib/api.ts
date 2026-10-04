@@ -1,4 +1,4 @@
-import { Todo, TodoCreateInput, TodoUpdateInput, UserProfile, KeycloakTokenResponse, RateLimitInfo } from "./types";
+import { Todo, TodoCreateInput, TodoUpdateInput, UserProfile, KeycloakTokenResponse, RateLimitInfo, PresignedUploadRequest, PresignedUploadResponse } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 const KEYCLOAK_URL = process.env.NEXT_PUBLIC_KEYCLOAK_URL || "http://192.168.1.3:8080";
@@ -49,9 +49,7 @@ export async function loginWithKeycloakPassword(
 
   const res = await fetch(tokenEndpoint, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
   });
 
@@ -73,22 +71,15 @@ export async function refreshKeycloakToken(refreshToken: string): Promise<Keyclo
 
   const res = await fetch(tokenEndpoint, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
   });
 
-  if (!res.ok) {
-    throw new Error("Failed to refresh token");
-  }
-
+  if (!res.ok) throw new Error("Failed to refresh token");
   return res.json();
 }
 
-/**
- * Builds the URL to redirect the user to Keycloak's hosted login screen.
- */
+/** Builds the URL to redirect the user to Keycloak's hosted login screen. */
 export function getKeycloakLoginUrl(): string {
   if (typeof window === "undefined") return "";
   const params = new URLSearchParams({
@@ -96,14 +87,12 @@ export function getKeycloakLoginUrl(): string {
     response_type: "code",
     scope: "openid profile email",
     redirect_uri: window.location.origin,
-    prompt: "login", // Forces Keycloak to always show the login screen instead of auto-logging in via SSO cookie
+    prompt: "login",
   });
   return `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/auth?${params.toString()}`;
 }
 
-/**
- * Builds the URL to log out of Keycloak SSO session and redirect back to the app.
- */
+/** Builds the URL to log out of Keycloak SSO session and redirect back to the app. */
 export function getKeycloakLogoutUrl(): string {
   if (typeof window === "undefined") return "";
   const params = new URLSearchParams({
@@ -113,9 +102,7 @@ export function getKeycloakLogoutUrl(): string {
   return `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/logout?${params.toString()}`;
 }
 
-/**
- * Exchanges the authorization code received from Keycloak redirect for JWT tokens.
- */
+/** Exchanges the authorization code received from Keycloak redirect for JWT tokens. */
 export async function exchangeCodeForToken(code: string): Promise<KeycloakTokenResponse> {
   const tokenEndpoint = `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/token`;
 
@@ -127,9 +114,7 @@ export async function exchangeCodeForToken(code: string): Promise<KeycloakTokenR
 
   const res = await fetch(tokenEndpoint, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
   });
 
@@ -141,7 +126,6 @@ export async function exchangeCodeForToken(code: string): Promise<KeycloakTokenR
   return res.json();
 }
 
-
 async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {},
@@ -149,23 +133,15 @@ async function apiRequest<T>(
 ): Promise<T> {
   const headers = new Headers(options.headers || {});
   headers.set("Content-Type", "application/json");
-
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
+  if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const url = `${API_BASE}${endpoint}`;
-  const res = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
+  const res = await fetch(url, { ...options, credentials: "include", headers });
 
   // Extract rate-limit headers from Redis middleware
   const limitHeader = res.headers.get("X-RateLimit-Limit");
   const remainingHeader = res.headers.get("X-RateLimit-Remaining");
   const resetHeader = res.headers.get("X-RateLimit-Reset");
-
   if (limitHeader && remainingHeader) {
     lastRateLimit = {
       limit: parseInt(limitHeader, 10),
@@ -177,35 +153,94 @@ async function apiRequest<T>(
   if (res.status === 429) {
     throw new Error(`Rate limit exceeded! Please wait ${lastRateLimit.reset}s before trying again.`);
   }
-
-  if (!res.ok) {
-    throw await responseError(res, "Request failed");
-  }
-
+  if (!res.ok) throw await responseError(res, "Request failed");
   return res.json();
 }
 
 export const api = {
-  // Todos
-  getTodos: (token: string): Promise<Todo[]> => apiRequest<Todo[]>("/todos/", { method: "GET" }, token),
+  // ─── Todos ────────────────────────────────────────────────────────────────────
 
-  getTodoById: (id: string, token: string): Promise<Todo> =>
-    apiRequest<Todo>(`/todos/${id}`, { method: "GET" }, token),
+  async getTodos(token: string): Promise<Todo[]> {
+    return apiRequest<Todo[]>("/todos/", { method: "GET" }, token);
+  },
 
-  createTodo: (data: TodoCreateInput, token: string): Promise<Todo> =>
-    apiRequest<Todo>("/todos/create", { method: "POST", body: JSON.stringify(data) }, token),
+  async getTodoById(id: string, token: string): Promise<Todo> {
+    return apiRequest<Todo>(`/todos/${id}`, { method: "GET" }, token);
+  },
 
-  updateTodo: (id: string, data: TodoUpdateInput, token: string): Promise<Todo> =>
-    apiRequest<Todo>(`/todos/update/${id}`, { method: "PATCH", body: JSON.stringify(data) }, token),
+  async createTodo(data: TodoCreateInput, token: string): Promise<Todo> {
+    return apiRequest<Todo>(
+      "/todos/create",
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      },
+      token
+    );
+  },
 
-  deleteTodo: (id: string, token: string): Promise<{ message: string }> =>
-    apiRequest<{ message: string }>(`/todos/delete/${id}`, { method: "DELETE" }, token),
+  async updateTodo(id: string, data: TodoUpdateInput, token: string): Promise<Todo> {
+    return apiRequest<Todo>(
+      `/todos/update/${id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      },
+      token
+    );
+  },
 
-  // Auth / User
-  getMe: (token: string): Promise<UserProfile> => apiRequest<UserProfile>("/auth/me", { method: "GET" }, token),
+  async deleteTodo(id: string, token: string): Promise<{ message: string }> {
+    return apiRequest<{ message: string }>(
+      `/todos/delete/${id}`,
+      { method: "DELETE" },
+      token
+    );
+  },
 
-  // Backend Health
-  getHealth: async (): Promise<{ status: string; db: string }> => {
+  // ─── Auth / User ──────────────────────────────────────────────────────────────
+
+  async getMe(token: string): Promise<UserProfile> {
+    return apiRequest<UserProfile>("/auth/me", { method: "GET" }, token);
+  },
+
+  // ─── S3 Attachment Helpers ────────────────────────────────────────────────────
+
+  /**
+   * Step 1 of file upload: ask FastAPI for a one-time signed MinIO PUT URL.
+   * FastAPI validates the JWT, builds a namespaced S3 key, returns { upload_url, s3_key }.
+   */
+  async presignUpload(data: PresignedUploadRequest, token: string): Promise<PresignedUploadResponse> {
+    return apiRequest<PresignedUploadResponse>(
+      "/todos/attachment/presign",
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      },
+      token
+    );
+  },
+
+  /**
+   * Step 2 of file upload: PUT raw bytes directly to MinIO.
+   * This fetch goes to MinIO (192.168.1.3:9000) — FastAPI is completely bypassed.
+   * MinIO validates the cryptographic signature embedded in the URL.
+   * CRITICAL: Content-Type header must exactly match what was sent to /presign.
+   */
+  async uploadToS3(uploadUrl: string, file: File): Promise<void> {
+    const res = await fetch(uploadUrl, {
+      method: "PUT",
+      body: file,
+      headers: { "Content-Type": file.type },
+    });
+    if (!res.ok) {
+      throw new Error(`Upload failed: MinIO returned HTTP ${res.status}. The signed URL may have expired.`);
+    }
+  },
+
+  // ─── Backend Health ───────────────────────────────────────────────────────────
+
+  async getHealth(): Promise<{ status: string; db: string }> {
     const healthUrl = API_BASE.replace("/api/v1", "/health");
     const res = await fetch(healthUrl);
     return res.json();

@@ -24,9 +24,24 @@ class TodoRepository:
         return result.scalars().all()
 
     async def create_todo(
-        self, user_id: UUID, title: str, description: Optional[str] = None
+        self,
+        user_id: UUID,
+        title: str,
+        description: Optional[str] = None,
+        attachment_key: Optional[str] = None,
+        attachment_name: Optional[str] = None,
+        attachment_size: Optional[int] = None,
+        attachment_content_type: Optional[str] = None,
     ) -> Todo:
-        todo = Todo(user_id=user_id, title=title, description=description)
+        todo = Todo(
+            user_id=user_id,
+            title=title,
+            description=description,
+            attachment_key=attachment_key,
+            attachment_name=attachment_name,
+            attachment_size=attachment_size,
+            attachment_content_type=attachment_content_type,
+        )
         self.session.add(todo)
         await self.session.commit()
         await self.session.refresh(todo)

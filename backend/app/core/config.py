@@ -16,11 +16,25 @@ class Settings(BaseSettings):
     session_expire_hours: int = 168  # 7 days session expiration
     redis_url: str = "redis://localhost:6379/0"  # default local Redis instance
 
-
     # Keycloak Configuration
     keycloak_server_url: str = "http://192.168.1.3:8080"
     keycloak_realm: str = "todo-realm"
     keycloak_client_id: str = "todo-app"
+
+    # ─── MinIO / S3 Configuration ──────────────────────────────────────────────
+    # s3_endpoint_url     : URL the *backend container* uses to reach MinIO
+    #                       (Docker internal DNS: http://minio:9000 in prod,
+    #                        LAN address for local dev: http://192.168.1.3:9000)
+    # s3_public_endpoint_url : URL that the *browser* will use when following
+    #                          a pre-signed URL. In prod the browser resolves the
+    #                          LAN IP, never the internal container hostname.
+    s3_endpoint_url: str = "http://192.168.1.3:9000"
+    s3_public_endpoint_url: str = "http://192.168.1.3:9000"
+    s3_access_key: str = "admin"
+    s3_secret_key: str = "admin123"
+    s3_bucket_name: str = "todo-attachments"
+    # Expiry (seconds) for pre-signed upload/download URLs (default: 15 minutes)
+    s3_presign_expiry: int = 900
 
     @property
     def keycloak_issuer(self) -> str:

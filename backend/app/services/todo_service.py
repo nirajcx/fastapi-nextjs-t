@@ -6,6 +6,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.todo_repository import TodoRepository
 from app.schemas.todos import TodoCreate, TodoResponse, TodoUpdate
+from app.services import s3_service
+
+
+def _to_response(todo) -> TodoResponse:
+    """
+    Convert a Todo ORM object → TodoResponse Pydantic model.
+
+    The key extra step: if the todo has an attachment_key stored in the DB,
+    we call s3_service.generate_presigned_download_url() to produce a fresh
+    signed GET URL. This URL is valid for 15 minutes and is embedded directly
+    in the response as `attachment_url`.
+
+    The frontend can use it immediately:
+      - Images  → <img src={attachment_url} />
+      - Files   → <a href={attachment_url} download>Download</a>
+    """
+    response = TodoResponse.model_validate(todo)
+    if todo.attachment_key:
+        response.attachment_url = s3_service.generate_presigned_download_url(
+            todo.attachment_key
+        )
+    return response
 
 
 class TodoService:
@@ -25,12 +47,12 @@ class TodoService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to access this todo",
             )
-        return TodoResponse.model_validate(todo)
+        return _to_response(todo)
 
     async def get_all_todos(self, user_id: UUID) -> Sequence[TodoResponse]:
         # Retrieve todos belonging strictly to the authenticated user
         todos = await self.repo.get_all_todos(user_id=user_id)
-        return [TodoResponse.model_validate(todo) for todo in todos]
+        return [_to_response(todo) for todo in todos]
 
     async def create_todo(self, user_id: UUID, todo_create: TodoCreate) -> TodoResponse:
         description = (
@@ -42,8 +64,13 @@ class TodoService:
             user_id=user_id,
             title=todo_create.title.strip(),
             description=description,
+            # Pass attachment metadata fields — all are None when no file selected
+            attachment_key=todo_create.attachment_key,
+            attachment_name=todo_create.attachment_name,
+            attachment_size=todo_create.attachment_size,
+            attachment_content_type=todo_create.attachment_content_type,
         )
-        return TodoResponse.model_validate(todo)
+        return _to_response(todo)
 
     async def delete_todo(self, todo_id: UUID, user_id: UUID) -> None:
         todo = await self.repo.get_todo_by_id(todo_id)
@@ -58,6 +85,10 @@ class TodoService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to delete this todo",
             )
+        # Clean up the S3 object so we don't accumulate orphan blobs in MinIO
+        if todo.attachment_key:
+            s3_service.delete_object(todo.attachment_key)
+
         await self.repo.delete_todo(todo)
 
     async def update_todo(
@@ -84,4 +115,4 @@ class TodoService:
             setattr(todo, key, value)
 
         updated_todo = await self.repo.update_todo(todo)
-        return TodoResponse.model_validate(updated_todo)
+        return _to_response(updated_todo)

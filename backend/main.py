@@ -16,6 +16,10 @@ from app.middleware.rate_limit import RedisRateLimitMiddleware
 async def lifespan(app: FastAPI):
     await init_redis()
     print("✅ Redis connected")
+    # Ensure the MinIO bucket exists — creates it on first boot, no-op after that.
+    from app.services.s3_service import ensure_bucket_exists
+    ensure_bucket_exists()
+    print(f"✅ MinIO bucket '{settings.s3_bucket_name}' ready")
     yield
     await close_redis()
     print("Redis connection closed")

@@ -23,7 +23,6 @@ async def init_redis() -> None:
             decode_responses=True,  # Return strings directly instead of raw bytes
         )
         await redis_client.ping()
-        print("✅ Redis connected successfully")
     except Exception as e:
         print(f"⚠️ Redis connection warning: {e}. Running with fail-open fallback.")
 
